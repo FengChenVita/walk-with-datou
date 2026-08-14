@@ -27,22 +27,8 @@ import type { AgeId, CharId, DirId, HumanCharId } from '../art/walkerData';
 import type { PropSprite } from '../art/props';
 
 const NAILONG_YOUNG_URL = new URL('../assets/avatars/nailong-young-v2.png', import.meta.url).href;
-const NAILONG_YOUNG_WALK_URL = new URL(
-  '../assets/avatars/nailong-young-walk.png',
-  import.meta.url,
-).href;
 const NAILONG_ADULT_URL = new URL('../assets/avatars/nailong-adult.png', import.meta.url).href;
-const NAILONG_ADULT_WALK_URL = new URL(
-  '../assets/avatars/nailong-adult-walk.png',
-  import.meta.url,
-).href;
 const NAILONG_HEIGHT: Record<AgeId, number> = { kid: 1.12, teen: 1.42, adult: 1.78 };
-const NAILONG_FRAMES = [
-  [0, 0.5],
-  [0.5, 0.5],
-  [0, 0],
-  [0.5, 0],
-] as const;
 
 function partPlane(
   sprite: PropSprite,
@@ -82,8 +68,7 @@ export class HumanRig {
   private farLeg!: THREE.Mesh;
   private nailong!: THREE.Mesh;
   private nailongIdleTexture!: THREE.Texture;
-  private nailongWalkTexture!: THREE.Texture;
-  private nailongFrame = -1;
+  private nailongBasePositions!: Float32Array;
   private readonly shadow: THREE.Mesh;
 
   private char: CharId;
@@ -151,19 +136,15 @@ export class HumanRig {
   /** Nailong is a single authored cutout; adult age selects the laughing meme variant. */
   private makeNailong(): THREE.Mesh {
     const height = NAILONG_HEIGHT[this.age];
-    const geometry = new THREE.PlaneGeometry(height, height);
+    // Subdivision lets the feet and belly move continuously without fading the
+    // whole character between sprites (which produced translucent ghosts).
+    const geometry = new THREE.PlaneGeometry(height, height, 16, 16);
     geometry.translate(0, height / 2, 0);
+    this.nailongBasePositions = new Float32Array(geometry.attributes.position.array);
     this.nailongIdleTexture = new THREE.TextureLoader().load(
       this.age === 'adult' ? NAILONG_ADULT_URL : NAILONG_YOUNG_URL,
     );
-    this.nailongWalkTexture = new THREE.TextureLoader().load(
-      this.age === 'adult' ? NAILONG_ADULT_WALK_URL : NAILONG_YOUNG_WALK_URL,
-    );
     this.nailongIdleTexture.colorSpace = THREE.SRGBColorSpace;
-    this.nailongWalkTexture.colorSpace = THREE.SRGBColorSpace;
-    this.nailongWalkTexture.repeat.set(0.5, 0.5);
-    this.nailongWalkTexture.offset.set(0, 0.5);
-    this.nailongFrame = -1;
     const material = new THREE.MeshBasicMaterial({
       map: this.nailongIdleTexture,
       transparent: true,
@@ -174,29 +155,44 @@ export class HumanRig {
     return new THREE.Mesh(geometry, material);
   }
 
-  /** Swap between the authored idle and the four-cell walk sheet. */
-  private animateNailong(moving: boolean, phase: number): void {
-    const material = this.nailong.material as THREE.MeshBasicMaterial;
-    if (!moving) {
-      if (material.map !== this.nailongIdleTexture) {
-        material.map = this.nailongIdleTexture;
-        material.needsUpdate = true;
-      }
-      this.nailongFrame = -1;
-      return;
-    }
+  /**
+   * Deform the plate on every render update. Each foot gets an opposing
+   * stride/lift phase while the belly lags behind the step. This stays fully
+   * opaque and runs at the browser's 30–60+ fps.
+   */
+  private deformNailong(moving: boolean, phase: number): void {
+    const position = this.nailong.geometry.attributes.position as THREE.BufferAttribute;
+    const height = NAILONG_HEIGHT[this.age];
+    const stride = Math.sin(phase);
+    const adult = this.age === 'adult';
 
-    if (material.map !== this.nailongWalkTexture) {
-      material.map = this.nailongWalkTexture;
-      material.needsUpdate = true;
+    for (let i = 0; i < position.count; i++) {
+      const j = i * 3;
+      const baseX = this.nailongBasePositions[j];
+      const baseY = this.nailongBasePositions[j + 1];
+      const baseZ = this.nailongBasePositions[j + 2];
+      if (!moving || this.char !== 'nailong') {
+        position.setXYZ(i, baseX, baseY, baseZ);
+        continue;
+      }
+
+      const u = baseX / height + 0.5;
+      const v = baseY / height;
+      const side = u < 0.5 ? -1 : 1;
+      const sideWeight = THREE.MathUtils.clamp(Math.abs(u - 0.5) * 5, 0, 1);
+      const footWeight = THREE.MathUtils.clamp((0.34 - v) / 0.2, 0, 1) * sideWeight;
+      const legPhase = -side * stride;
+      let dx = footWeight * legPhase * height * (adult ? 0.042 : 0.06);
+      let dy =
+        footWeight * Math.max(0, legPhase) * height * (adult ? 0.025 : 0.04);
+
+      const bellyVertical = THREE.MathUtils.clamp(1 - Math.abs(v - 0.4) / 0.24, 0, 1);
+      const bellyHorizontal = THREE.MathUtils.clamp(1 - Math.abs(u - 0.5) / 0.46, 0, 1);
+      dx -= bellyVertical * bellyHorizontal * stride * height * (adult ? 0.012 : 0.008);
+      dy -= bellyVertical * bellyHorizontal * Math.abs(stride) * height * 0.004;
+      position.setXYZ(i, baseX + dx, baseY + dy, baseZ);
     }
-    const frame = Math.floor(
-      (((phase % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2)) / (Math.PI / 2),
-    );
-    if (frame === this.nailongFrame) return;
-    this.nailongFrame = frame;
-    const [u, v] = NAILONG_FRAMES[frame];
-    this.nailongWalkTexture.offset.set(u, v);
+    position.needsUpdate = true;
   }
 
   /** Draw legs + both body views, add them to the rig, and lay everything out. */
@@ -271,7 +267,6 @@ export class HumanRig {
     const farRot = this.farLeg.rotation.z;
     this.flip.remove(this.nailong);
     this.nailongIdleTexture.dispose();
-    this.nailongWalkTexture.dispose();
     (this.nailong.material as THREE.MeshBasicMaterial).dispose();
     this.nailong.geometry.dispose();
     drop(this.farLeg);
@@ -343,7 +338,7 @@ export class HumanRig {
     const nailongPhase = this.gait * (adultNailong ? 0.72 : 1.14);
     const step = Math.sin(nailongPhase);
     const impact = Math.abs(step);
-    this.animateNailong(moving, nailongPhase);
+    this.deformNailong(moving, nailongPhase);
     this.nailong.position.x = moving ? step * (adultNailong ? 0.055 : 0.035) : 0;
     this.nailong.position.y = moving
       ? impact * (adultNailong ? 0.025 : 0.055)
