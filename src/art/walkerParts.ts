@@ -23,7 +23,7 @@ import {
   CAST,
   DIRECTIONS,
   type AgeId,
-  type CharId,
+  type HumanCharId,
   type DirId,
   type Fit,
 } from './walkerData';
@@ -438,7 +438,7 @@ function headgear(g: CanvasRenderingContext2D, geo: Geo, fit: Fit, seed: number,
  * with a short neck running to the very bottom so it reads as one connected
  * figure when stacked under the torso plate.
  */
-export function drawWalkerHead(char: CharId, dir: DirId, age: AgeId, view: ViewId = 'front'): PropSprite {
+export function drawWalkerHead(char: HumanCharId, dir: DirId, age: AgeId, view: ViewId = 'front'): PropSprite {
   const ch = CAST[char];
   const fit = DIRECTIONS[dir].fits[char];
   const geo = makeGeo(age);
@@ -913,7 +913,7 @@ function hoodBehindSide(g: CanvasRenderingContext2D, geo: Geo, fit: Fit, seed: n
  * Torso plate — pivot = bottom center. Canvas spans figure y∈[torsoTop − margin
  * .. a little below the hem], wide enough for outstretched arms + satchel.
  */
-export function drawWalkerTorso(char: CharId, dir: DirId, age: AgeId, view: ViewId = 'front'): TorsoSprite {
+export function drawWalkerTorso(char: HumanCharId, dir: DirId, age: AgeId, view: ViewId = 'front'): TorsoSprite {
   const ch = CAST[char];
   const fit = DIRECTIONS[dir].fits[char];
   const geo = makeGeo(age);
@@ -991,7 +991,7 @@ function shoeF(g: CanvasRenderingContext2D, x: number, ground: number, color: st
  * Leg plate — pivot = top center (hip). One leg drawn into a tall canvas; the
  * rig instantiates it twice and offsets/mirrors for the two-beat walk.
  */
-export function drawWalkerLeg(char: CharId, dir: DirId, age: AgeId): PropSprite {
+export function drawWalkerLeg(char: HumanCharId, dir: DirId, age: AgeId): PropSprite {
   const fit = DIRECTIONS[dir].fits[char];
   const ch = CAST[char];
   const geo = makeGeo(age);

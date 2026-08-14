@@ -9,7 +9,8 @@
 
 import { WALKER as W } from './palette';
 
-export type CharId = 'mei' | 'an';
+export type HumanCharId = 'mei' | 'an';
+export type CharId = HumanCharId | 'nailong';
 export type DirId = 'scout' | 'pajama' | 'cape' | 'picnic' | 'rain';
 export type AgeId = 'kid' | 'teen' | 'adult';
 
@@ -41,13 +42,13 @@ export const AGE_M: Record<AgeId, AgeMetrics> = {
 };
 
 export interface Cast {
-  id: CharId;
+  id: HumanCharId;
   name: string;
   skin: string;
   hair: string;
 }
 
-export const CAST: Record<CharId, Cast> = {
+export const CAST: Record<HumanCharId, Cast> = {
   mei: { id: 'mei', name: 'Mei', skin: W.skinMei, hair: W.hairMei },
   an: { id: 'an', name: 'An', skin: W.skinAn, hair: W.hairAn },
 };
@@ -91,7 +92,7 @@ export interface Fit {
 
 export interface Direction {
   title: string;
-  fits: Record<CharId, Fit>;
+  fits: Record<HumanCharId, Fit>;
 }
 
 export const DIRECTION_ORDER: DirId[] = ['scout', 'pajama', 'cape', 'picnic', 'rain'];

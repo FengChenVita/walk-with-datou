@@ -29,12 +29,12 @@ function legacyChar(): CharId | null {
 export function readSavedCharacter(): CharId {
   try {
     const q = new URLSearchParams(window.location.search).get('walker');
-    if (q === 'mei' || q === 'an') return q;
+    if (q === 'mei' || q === 'an' || q === 'nailong') return q;
     const saved = localStorage.getItem(CHAR_KEY);
-    if (saved === 'mei' || saved === 'an') return saved;
-    return legacyChar() ?? 'mei';
+    if (saved === 'mei' || saved === 'an' || saved === 'nailong') return saved;
+    return legacyChar() ?? 'nailong';
   } catch {
-    return 'mei';
+    return 'nailong';
   }
 }
 

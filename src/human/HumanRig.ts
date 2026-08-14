@@ -23,8 +23,26 @@ import {
   type ViewId,
 } from '../art/walkerParts';
 import { canvasTexture } from '../art/textures';
-import type { AgeId, CharId, DirId } from '../art/walkerData';
+import type { AgeId, CharId, DirId, HumanCharId } from '../art/walkerData';
 import type { PropSprite } from '../art/props';
+
+const NAILONG_YOUNG_URL = new URL('../assets/avatars/nailong-young-v2.png', import.meta.url).href;
+const NAILONG_YOUNG_WALK_URL = new URL(
+  '../assets/avatars/nailong-young-walk.png',
+  import.meta.url,
+).href;
+const NAILONG_ADULT_URL = new URL('../assets/avatars/nailong-adult.png', import.meta.url).href;
+const NAILONG_ADULT_WALK_URL = new URL(
+  '../assets/avatars/nailong-adult-walk.png',
+  import.meta.url,
+).href;
+const NAILONG_HEIGHT: Record<AgeId, number> = { kid: 1.12, teen: 1.42, adult: 1.78 };
+const NAILONG_FRAMES = [
+  [0, 0.5],
+  [0.5, 0.5],
+  [0, 0],
+  [0.5, 0],
+] as const;
 
 function partPlane(
   sprite: PropSprite,
@@ -62,6 +80,10 @@ export class HumanRig {
   private bodies!: Record<ViewId, BodyView>;
   private nearLeg!: THREE.Mesh;
   private farLeg!: THREE.Mesh;
+  private nailong!: THREE.Mesh;
+  private nailongIdleTexture!: THREE.Texture;
+  private nailongWalkTexture!: THREE.Texture;
+  private nailongFrame = -1;
   private readonly shadow: THREE.Mesh;
 
   private char: CharId;
@@ -77,7 +99,7 @@ export class HumanRig {
 
   constructor(
     shadowTexture: THREE.Texture,
-    char: CharId = 'mei',
+    char: CharId = 'nailong',
     dir: DirId = 'scout',
     age: AgeId = 'adult',
   ) {
@@ -98,12 +120,17 @@ export class HumanRig {
     this.group.add(this.shadow);
   }
 
+  /** The paper-puppet renderer remains the fallback behind Nailong's full sprite. */
+  private get humanChar(): HumanCharId {
+    return this.char === 'nailong' ? 'mei' : this.char;
+  }
+
   private makeLeg(tint: number): THREE.Mesh {
-    return partPlane(drawWalkerLeg(this.char, this.dir, this.age), this.layout.legH, 'top', tint);
+    return partPlane(drawWalkerLeg(this.humanChar, this.dir, this.age), this.layout.legH, 'top', tint);
   }
 
   private makeBody(view: ViewId): BodyView {
-    const sprite = drawWalkerTorso(this.char, this.dir, this.age, view);
+    const sprite = drawWalkerTorso(this.humanChar, this.dir, this.age, view);
     const torso = partPlane(sprite, this.layout.torsoH, 'bottom');
     // Map the plate's reported hand fraction into the torso's local space.
     // Plate is bottom-anchored: v=1 → bottom (torsoBottomY), v=0 → top.
@@ -113,16 +140,72 @@ export class HumanRig {
       this.layout.torsoBottomY + (1 - sprite.hand.v) * this.layout.torsoH,
       0.05,
     );
-    const head = partPlane(drawWalkerHead(this.char, this.dir, this.age, view), this.layout.headH, 'bottom');
+    const head = partPlane(
+      drawWalkerHead(this.humanChar, this.dir, this.age, view),
+      this.layout.headH,
+      'bottom',
+    );
     return { torso, head, hand };
+  }
+
+  /** Nailong is a single authored cutout; adult age selects the laughing meme variant. */
+  private makeNailong(): THREE.Mesh {
+    const height = NAILONG_HEIGHT[this.age];
+    const geometry = new THREE.PlaneGeometry(height, height);
+    geometry.translate(0, height / 2, 0);
+    this.nailongIdleTexture = new THREE.TextureLoader().load(
+      this.age === 'adult' ? NAILONG_ADULT_URL : NAILONG_YOUNG_URL,
+    );
+    this.nailongWalkTexture = new THREE.TextureLoader().load(
+      this.age === 'adult' ? NAILONG_ADULT_WALK_URL : NAILONG_YOUNG_WALK_URL,
+    );
+    this.nailongIdleTexture.colorSpace = THREE.SRGBColorSpace;
+    this.nailongWalkTexture.colorSpace = THREE.SRGBColorSpace;
+    this.nailongWalkTexture.repeat.set(0.5, 0.5);
+    this.nailongWalkTexture.offset.set(0, 0.5);
+    this.nailongFrame = -1;
+    const material = new THREE.MeshBasicMaterial({
+      map: this.nailongIdleTexture,
+      transparent: true,
+      alphaTest: 0.08,
+      depthWrite: true,
+      side: THREE.DoubleSide,
+    });
+    return new THREE.Mesh(geometry, material);
+  }
+
+  /** Swap between the authored idle and the four-cell walk sheet. */
+  private animateNailong(moving: boolean, phase: number): void {
+    const material = this.nailong.material as THREE.MeshBasicMaterial;
+    if (!moving) {
+      if (material.map !== this.nailongIdleTexture) {
+        material.map = this.nailongIdleTexture;
+        material.needsUpdate = true;
+      }
+      this.nailongFrame = -1;
+      return;
+    }
+
+    if (material.map !== this.nailongWalkTexture) {
+      material.map = this.nailongWalkTexture;
+      material.needsUpdate = true;
+    }
+    const frame = Math.floor(
+      (((phase % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2)) / (Math.PI / 2),
+    );
+    if (frame === this.nailongFrame) return;
+    this.nailongFrame = frame;
+    const [u, v] = NAILONG_FRAMES[frame];
+    this.nailongWalkTexture.offset.set(u, v);
   }
 
   /** Draw legs + both body views, add them to the rig, and lay everything out. */
   private buildPlates(): void {
+    this.nailong = this.makeNailong();
     this.farLeg = this.makeLeg(0.82);
     this.nearLeg = this.makeLeg(1);
     this.bodies = { front: this.makeBody('front'), side: this.makeBody('side') };
-    this.flip.add(this.farLeg, this.nearLeg);
+    this.flip.add(this.nailong, this.farLeg, this.nearLeg);
     for (const v of VIEWS) this.flip.add(this.bodies[v].torso, this.bodies[v].head);
     this.placePlates();
     this.applyView();
@@ -131,6 +214,7 @@ export class HumanRig {
   /** Position every plate from the current age's layout (call after any build). */
   private placePlates(): void {
     const L = this.layout;
+    this.nailong.position.set(0, 0, 0.05);
     this.farLeg.position.set(-0.05, L.hipY, -0.03);
     this.nearLeg.position.set(0.06, L.hipY, 0.03);
     for (const v of VIEWS) {
@@ -140,14 +224,18 @@ export class HumanRig {
   }
 
   private applyView(): void {
+    const isNailong = this.char === 'nailong';
+    this.nailong.visible = isNailong;
+    this.farLeg.visible = !isNailong;
+    this.nearLeg.visible = !isNailong;
     for (const v of VIEWS) {
-      const on = v === this.view;
+      const on = !isNailong && v === this.view;
       this.bodies[v].torso.visible = on;
       this.bodies[v].head.visible = on;
     }
   }
 
-  /** Swap the human companion (Mei/An) live — redraws all plates. */
+  /** Swap the playable walker (Nailong/Mei/An) live — redraws all plates. */
   setCharacter(char: CharId): void {
     if (char === this.char) return;
     this.char = char;
@@ -181,6 +269,11 @@ export class HumanRig {
     // Preserve the in-progress gait rotations on the legs across the swap.
     const nearRot = this.nearLeg.rotation.z;
     const farRot = this.farLeg.rotation.z;
+    this.flip.remove(this.nailong);
+    this.nailongIdleTexture.dispose();
+    this.nailongWalkTexture.dispose();
+    (this.nailong.material as THREE.MeshBasicMaterial).dispose();
+    this.nailong.geometry.dispose();
     drop(this.farLeg);
     drop(this.nearLeg);
     for (const v of VIEWS) {
@@ -194,6 +287,14 @@ export class HumanRig {
 
   /** World position of the leash hand (for the rope), in the active view. */
   get handPosition(): THREE.Vector3 {
+    if (this.char === 'nailong') {
+      const h = NAILONG_HEIGHT[this.age];
+      this.handWorld
+        .set(-h * 0.12 * this.facing, h * 0.39, 0.05)
+        .applyAxisAngle(new THREE.Vector3(0, 1, 0), this.flip.rotation.y)
+        .add(this.group.position);
+      return this.handWorld;
+    }
     const hand = this.bodies[this.view].hand;
     this.handWorld
       .copy(hand)
@@ -213,7 +314,9 @@ export class HumanRig {
     const vScreen = vx * rightX + vz * rightZ;
     const vDepth = vx * Math.sin(camYaw) + vz * Math.cos(camYaw);
     if (Math.abs(vScreen) > 0.12) this.facing = vScreen > 0 ? 1 : -1;
-    this.flip.scale.x = this.facing;
+    // The generated Nailong plates are authored facing screen-left, while the
+    // human profile plates are authored facing +x (screen-right).
+    this.flip.scale.x = this.char === 'nailong' ? -this.facing : this.facing;
 
     const speed = Math.hypot(vx, vz);
     const moving = speed > 0.1;
@@ -236,6 +339,28 @@ export class HumanRig {
     const L = this.layout;
     const bob = moving ? Math.abs(Math.sin(this.gait)) * 0.04 : 0;
     const breath = moving ? 0 : Math.sin((this.time * Math.PI * 2) / 3.1) * 0.006;
+    const adultNailong = this.age === 'adult';
+    const nailongPhase = this.gait * (adultNailong ? 0.72 : 1.14);
+    const step = Math.sin(nailongPhase);
+    const impact = Math.abs(step);
+    this.animateNailong(moving, nailongPhase);
+    this.nailong.position.x = moving ? step * (adultNailong ? 0.055 : 0.035) : 0;
+    this.nailong.position.y = moving
+      ? impact * (adultNailong ? 0.025 : 0.055)
+      : breath;
+    this.nailong.rotation.z = moving ? step * (adultNailong ? 0.065 : 0.08) : 0;
+    const squash = moving ? impact * (adultNailong ? 0.018 : 0.028) : 0;
+    this.nailong.scale.set(1 + squash, 1 - squash, 1);
+    const nailongShadow = this.char === 'nailong' ? NAILONG_HEIGHT[this.age] / 1.55 : 1;
+    if (this.char === 'nailong') {
+      this.shadow.scale.set(
+        nailongShadow * (1 + impact * 0.05),
+        nailongShadow * (1 - impact * 0.03),
+        nailongShadow,
+      );
+    } else {
+      this.shadow.scale.set(1, 1, 1);
+    }
     const body = this.bodies[this.view];
     body.torso.position.y = L.torsoBottomY + bob + breath;
     body.head.position.y = L.headY + bob * 1.1 + breath;

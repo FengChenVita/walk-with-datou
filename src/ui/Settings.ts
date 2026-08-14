@@ -30,7 +30,7 @@ import { applyStaticI18n, getLang, onLangChange, setLang, t, type Lang } from '.
 export interface SettingsOptions {
   /** The backend actually running this session (after any fallback). */
   activeBackend: PhysicsBackend;
-  /** Applies Datou's human companion (Mei/An) live (no reload needed). */
+  /** Applies the playable walker (Nailong/Mei/An) live (no reload needed). */
   onCharacterChange?: (char: CharId) => void;
   /** Applies the walker's outfit live (no reload needed). */
   onOutfitChange?: (dir: DirId) => void;
@@ -105,7 +105,7 @@ export function mountSettings(opts: SettingsOptions): void {
     });
   }
 
-  // Human companion (Mei / An) — saved and applied live.
+  // Playable walker (Nailong / Mei / An) — saved and applied live.
   let character = readSavedCharacter();
   const refreshCharButtons = (): void => {
     for (const b of charButtons) b.classList.toggle('active', b.dataset.char === character);
@@ -114,7 +114,8 @@ export function mountSettings(opts: SettingsOptions): void {
   for (const b of charButtons) {
     b.addEventListener('click', (e) => {
       e.stopPropagation();
-      const next: CharId = b.dataset.char === 'an' ? 'an' : 'mei';
+      const next = b.dataset.char as CharId | undefined;
+      if (next !== 'nailong' && next !== 'mei' && next !== 'an') return;
       if (next === character) return;
       character = next;
       saveCharacterPreference(next);
